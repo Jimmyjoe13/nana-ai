@@ -41,6 +41,8 @@ NO_REPEAT_NGRAM_SIZE = int(os.getenv('NO_REPEAT_NGRAM_SIZE', 3))
 NUM_RETURN_SEQUENCES = int(os.getenv('NUM_RETURN_SEQUENCES', 1))
 ENABLE_MEMORY = os.getenv('ENABLE_MEMORY', 'True').lower() == 'true'
 MAX_MEMORY_MESSAGES = int(os.getenv('MAX_MEMORY_MESSAGES', 10))
+NUM_BEAMS = int(os.getenv('NUM_BEAMS', 4))
+LENGTH_PENALTY = float(os.getenv('LENGTH_PENALTY', 0.6))
 
 # Liste restreinte des mots-clés urgents
 MOTS_CLES_URGENTS = [
@@ -136,52 +138,70 @@ class ConversationMemory:
         
         return " ".join(history)
 
+    def add_to_conversation(self, sender_id: str, user_input: str, response: str):
+        self.add_message(sender_id, user_input, is_bot=False)
+        self.add_message(sender_id, response, is_bot=True)
+
 # Initialisation de la mémoire des conversations
 conversation_memory = ConversationMemory()
 
 async def generate_response_with_model(user_input: str, sender_id: str) -> str:
     """Génère une réponse en utilisant le modèle Blenderbot avec gestion de la mémoire."""
     try:
-        # Récupérer l'historique si activé
-        context = ""
-        if ENABLE_MEMORY:
-            context = conversation_memory.get_conversation_history(sender_id)
-            input_text = f"{context} {user_input}" if context else user_input
+        logger.info(f"Génération de réponse pour '{user_input}' de {sender_id}")
+        
+        # Récupération de l'historique de conversation
+        conversation_history = conversation_memory.get_conversation_history(sender_id)
+        logger.info(f"Historique de conversation récupéré: {len(conversation_history)} messages")
+        
+        # Construction du contexte
+        if ENABLE_MEMORY and conversation_history:
+            input_text = " ".join(conversation_history[-MAX_MEMORY_MESSAGES:] + [user_input])
+            logger.info(f"Utilisation du contexte: {input_text}")
         else:
             input_text = user_input
+            logger.info("Pas de contexte utilisé")
+
+        # Vérification du modèle
+        if model is None:
+            logger.info("Modèle non chargé, chargement...")
+            init_model()
+            logger.info("Modèle chargé avec succès")
 
         # Encoder l'entrée
+        logger.info("Tokenization de l'entrée...")
         inputs = tokenizer(input_text, return_tensors="pt", truncation=True, max_length=MAX_LENGTH)
         inputs = inputs.to(model.device)
+        logger.info("Tokenization terminée")
 
         # Générer la réponse
+        logger.info("Génération de la réponse...")
         with torch.no_grad():
             outputs = model.generate(
-                **inputs,
+                inputs["input_ids"],
                 max_length=MAX_LENGTH,
                 min_length=MIN_LENGTH,
-                temperature=TEMPERATURE,
-                top_k=TOP_K,
-                top_p=TOP_P,
+                num_beams=NUM_BEAMS,
+                length_penalty=LENGTH_PENALTY,
                 no_repeat_ngram_size=NO_REPEAT_NGRAM_SIZE,
-                num_return_sequences=NUM_RETURN_SEQUENCES,
-                do_sample=True
+                early_stopping=True
             )
+        logger.info("Génération terminée")
 
         # Décoder la réponse
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Sauvegarder dans l'historique si activé
+        logger.info(f"Réponse décodée: {response}")
+
+        # Mise à jour de la mémoire de conversation
         if ENABLE_MEMORY:
-            conversation_memory.add_message(sender_id, user_input, is_bot=False)
-            conversation_memory.add_message(sender_id, response, is_bot=True)
-        
-        logger.info(f"Réponse générée pour {sender_id}: {response}")
+            conversation_memory.add_to_conversation(sender_id, user_input, response)
+            logger.info("Mémoire de conversation mise à jour")
+
         return response
 
     except Exception as e:
-        logger.error(f"Erreur lors de la génération de réponse: {e}")
-        return "Je suis désolé, j'ai du mal à générer une réponse pour le moment. Pourriez-vous reformuler votre message ?"
+        logger.error(f"Erreur lors de la génération de réponse: {str(e)}", exc_info=True)
+        return "Je suis désolé, j'ai du mal à comprendre. Pourriez-vous reformuler votre message ?"
 
 @app.on_event("startup")
 async def startup_event():
@@ -285,9 +305,6 @@ async def verify_webhook(request: Request):
 async def webhook_handler(request: Request):
     """Gère les webhooks entrants de WhatsApp."""
     try:
-        if model is None or tokenizer is None:
-            init_model()
-            
         body = await request.json()
         logger.info(f"Webhook reçu: {body}")
         
@@ -300,31 +317,44 @@ async def webhook_handler(request: Request):
                 for change in entry["changes"]:
                     if change["value"].get("messages"):
                         message_data = change["value"]["messages"][0]
-                        sender_id = message_data["from"]
-                        message_text = message_data["text"]["body"]
-
-                        logger.info(f"Message reçu de {sender_id}: {message_text}")
-
-                        message = Message(message=message_text, sender=sender_id)
-
-                        # Vérification des messages urgents
-                        if est_message_urgent(message.message):
-                            logger.info("Message urgent détecté")
-                            notifier_proprietaire(message.message, message.sender)
-                            reponse = "J'ai bien reçu votre message urgent et je l'ai transmis au propriétaire. Il vous répondra dès que possible."
-                        else:
-                            logger.info("Message non urgent, génération de réponse avec le modèle")
-                            reponse = await generate_response_with_model(message.message, sender_id)
-
-                        logger.info(f"Envoi de la réponse à {sender_id}: {reponse}")
-                        
-                        messenger.send_message(
-                            message=reponse,
-                            recipient_id=sender_id
-                        )
-                        logger.info(f"Réponse envoyée avec succès à {sender_id}")
-
-        return {"status": "success"}
+                        if message_data.get("type") == "text":
+                            # Extraction des informations du message
+                            sender_id = message_data["from"]
+                            message_text = message_data["text"]["body"]
+                            
+                            logger.info(f"Message reçu de {sender_id}: {message_text}")
+                            
+                            # Vérification si le message est urgent
+                            if est_message_urgent(message_text):
+                                logger.info("Message urgent détecté")
+                                notifier_proprietaire(message_text, sender_id)
+                                response = "J'ai bien reçu votre message urgent. Le propriétaire a été notifié et vous répondra dès que possible."
+                            else:
+                                logger.info("Message non urgent, génération de réponse avec le modèle")
+                                try:
+                                    # S'assurer que le modèle est chargé
+                                    if model is None:
+                                        logger.info("Chargement du modèle...")
+                                        init_model()
+                                        logger.info("Modèle chargé avec succès")
+                                    
+                                    # Générer la réponse
+                                    response = await generate_response_with_model(message_text, sender_id)
+                                    logger.info(f"Réponse générée: {response}")
+                                    
+                                    # Envoyer la réponse via WhatsApp
+                                    logger.info(f"Envoi de la réponse à {sender_id}")
+                                    messenger.send_message(response, sender_id)
+                                    logger.info("Réponse envoyée avec succès")
+                                    
+                                except Exception as e:
+                                    logger.error(f"Erreur lors de la génération/envoi de la réponse: {str(e)}")
+                                    response = "Je suis désolé, j'ai rencontré une erreur. Pourriez-vous réessayer dans quelques instants ?"
+                                    messenger.send_message(response, sender_id)
+                            
+                            return {"status": "ok", "message": "Message processed"}
+        
+        return {"status": "ok", "message": "Webhook received"}
     except Exception as e:
-        logger.error(f"Erreur lors du traitement du message: {e}", exc_info=True)
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Erreur lors du traitement du webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
