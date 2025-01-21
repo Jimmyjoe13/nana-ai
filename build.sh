@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Fonction pour gérer les erreurs
 handle_error() {
