@@ -1,14 +1,15 @@
 import os
-from dotenv import load_dotenv
-import logging
 import sys
-import json
+import logging
 from datetime import datetime
-import torch
+from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
-from pydantic import BaseModel
+from dotenv import load_dotenv
+import torch
 from heyoo import WhatsApp
 from transformers import BlenderbotTokenizer, BlenderbotForConditionalGeneration
+from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 
 # Configuration du logger
 logger = logging.getLogger("app")
@@ -17,28 +18,16 @@ handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(handler)
 
-app = FastAPI(title="NANA AI - Assistant WhatsApp")
-
 # Chargement des variables d'environnement
 load_dotenv()
+logger.info("Variables d'environnement chargées")
 
-# Vérification des variables d'environnement requises
-required_env_vars = ['WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'VERIFY_TOKEN']
-for var in required_env_vars:
-    if not os.getenv(var):
-        logger.error(f"Variable d'environnement manquante : {var}")
-        raise ValueError(f"Variable d'environnement manquante : {var}")
+app = FastAPI(title="NANA AI - Assistant WhatsApp")
 
-# Initialisation du client WhatsApp
-try:
-    messenger = WhatsApp(
-        token=os.getenv('WHATSAPP_TOKEN'),
-        phone_number_id=os.getenv('WHATSAPP_PHONE_ID')
-    )
-    logger.info("Client WhatsApp initialisé avec succès")
-except Exception as e:
-    logger.error(f"Erreur lors de l'initialisation du client WhatsApp: {e}")
-    raise
+# Variables globales pour le modèle et le tokenizer
+model = None
+tokenizer = None
+messenger = None
 
 # Configuration des paramètres du modèle depuis les variables d'environnement
 MODEL_NAME = os.getenv('MODEL_NAME', 'facebook/blenderbot-400M-distill')
@@ -53,34 +42,64 @@ NUM_RETURN_SEQUENCES = int(os.getenv('NUM_RETURN_SEQUENCES', 1))
 ENABLE_MEMORY = os.getenv('ENABLE_MEMORY', 'True').lower() == 'true'
 MAX_MEMORY_MESSAGES = int(os.getenv('MAX_MEMORY_MESSAGES', 10))
 
-# Initialisation du modèle Hugging Face
-try:
-    # Vérifier si le modèle est déjà téléchargé localement
-    if os.path.exists(MODEL_PATH):
-        logger.info(f"Chargement du modèle depuis {MODEL_PATH}")
-        tokenizer = BlenderbotTokenizer.from_pretrained(MODEL_PATH)
-        model = BlenderbotForConditionalGeneration.from_pretrained(MODEL_PATH)
-    else:
-        logger.info(f"Téléchargement du modèle {MODEL_NAME}")
-        if os.getenv('HUGGINGFACE_TOKEN'):
-            tokenizer = BlenderbotTokenizer.from_pretrained(MODEL_NAME, use_auth_token=os.getenv('HUGGINGFACE_TOKEN'))
-            model = BlenderbotForConditionalGeneration.from_pretrained(MODEL_NAME, use_auth_token=os.getenv('HUGGINGFACE_TOKEN'))
-        else:
-            tokenizer = BlenderbotTokenizer.from_pretrained(MODEL_NAME)
-            model = BlenderbotForConditionalGeneration.from_pretrained(MODEL_NAME)
-        
-        # Sauvegarder le modèle localement
-        os.makedirs(MODEL_PATH, exist_ok=True)
-        tokenizer.save_pretrained(MODEL_PATH)
-        model.save_pretrained(MODEL_PATH)
-    
-    # Déplacer le modèle sur GPU si disponible
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    logger.info(f"Modèle chargé avec succès sur {device}")
-except Exception as e:
-    logger.error(f"Erreur lors du chargement du modèle Hugging Face: {e}")
-    raise
+# Liste restreinte des mots-clés urgents
+MOTS_CLES_URGENTS = [
+    "URGENT", "URGENCE", "SOS",
+    "CRITIQUE", "EMERGENCY"
+]
+
+def est_message_urgent(message: str) -> bool:
+    """Vérifie si le message contient des mots-clés urgents."""
+    message_upper = message.upper()
+    is_urgent = any(mot in message_upper for mot in MOTS_CLES_URGENTS)
+    logger.info(f"Vérification message urgent: '{message}' -> {is_urgent}")
+    return is_urgent
+
+def notifier_proprietaire(message: str, sender: str):
+    """Envoie une notification au propriétaire pour les messages urgents."""
+    try:
+        logger.info(f"Tentative d'envoi de notification pour message urgent de {sender}")
+        messenger.send_message(
+            f"🚨 Message urgent de {sender}:\n{message}",
+            os.getenv('WHATSAPP_PHONE_ID')
+        )
+        logger.info("Notification envoyée avec succès")
+    except Exception as e:
+        logger.error(f"Erreur lors de la notification du propriétaire: {e}")
+        raise
+
+def init_whatsapp():
+    """Initialise le client WhatsApp."""
+    global messenger
+    try:
+        token = os.getenv("WHATSAPP_TOKEN")
+        phone_id = os.getenv("WHATSAPP_PHONE_ID")
+        messenger = WhatsApp(token, phone_number_id=phone_id)
+        logger.info("Client WhatsApp initialisé avec succès")
+    except Exception as e:
+        logger.error(f"Erreur lors de l'initialisation du client WhatsApp: {str(e)}")
+        raise
+
+def init_model():
+    """Initialise le modèle et le tokenizer."""
+    global model, tokenizer
+    try:
+        if model is None or tokenizer is None:
+            logger.info("Chargement du modèle depuis le cache...")
+            cache_dir = "/opt/render/project/src/data/model"
+            
+            logger.info("Chargement du tokenizer...")
+            tokenizer = BlenderbotTokenizer.from_pretrained(cache_dir)
+            
+            logger.info("Chargement du modèle...")
+            model = BlenderbotForConditionalGeneration.from_pretrained(cache_dir)
+            
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = model.to(device)
+            logger.info(f"Modèle chargé avec succès sur {device}")
+    except Exception as e:
+        logger.error(f"Erreur lors du chargement du modèle: {str(e)}")
+        raise
 
 class Message(BaseModel):
     message: str
@@ -120,32 +139,6 @@ class ConversationMemory:
 # Initialisation de la mémoire des conversations
 conversation_memory = ConversationMemory()
 
-# Liste restreinte des mots-clés urgents
-MOTS_CLES_URGENTS = [
-    "URGENT", "URGENCE", "SOS",
-    "CRITIQUE", "EMERGENCY"
-]
-
-def est_message_urgent(message: str) -> bool:
-    """Vérifie si le message contient des mots-clés urgents."""
-    message_upper = message.upper()
-    is_urgent = any(mot in message_upper for mot in MOTS_CLES_URGENTS)
-    logger.info(f"Vérification message urgent: '{message}' -> {is_urgent}")
-    return is_urgent
-
-def notifier_proprietaire(message: str, sender: str):
-    """Envoie une notification au propriétaire pour les messages urgents."""
-    try:
-        logger.info(f"Tentative d'envoi de notification pour message urgent de {sender}")
-        messenger.send_message(
-            f"🚨 Message urgent de {sender}:\n{message}",
-            os.getenv('WHATSAPP_PHONE_ID')
-        )
-        logger.info("Notification envoyée avec succès")
-    except Exception as e:
-        logger.error(f"Erreur lors de la notification du propriétaire: {e}")
-        raise
-
 async def generate_response_with_model(user_input: str, sender_id: str) -> str:
     """Génère une réponse en utilisant le modèle Blenderbot avec gestion de la mémoire."""
     try:
@@ -159,7 +152,7 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
 
         # Encoder l'entrée
         inputs = tokenizer(input_text, return_tensors="pt", truncation=True, max_length=MAX_LENGTH)
-        inputs = inputs.to(device)
+        inputs = inputs.to(model.device)
 
         # Générer la réponse
         with torch.no_grad():
@@ -190,7 +183,16 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
         logger.error(f"Erreur lors de la génération de réponse: {e}")
         return "Je suis désolé, j'ai du mal à générer une réponse pour le moment. Pourriez-vous reformuler votre message ?"
 
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+@app.on_event("startup")
+async def startup_event():
+    """Événement de démarrage de l'application."""
+    logger.info("Démarrage de l'application...")
+    try:
+        init_whatsapp()
+        logger.info("Application démarrée avec succès")
+    except Exception as e:
+        logger.error(f"Erreur lors du démarrage: {str(e)}")
+        raise
 
 @app.get("/")
 async def root():
@@ -218,6 +220,17 @@ async def test():
         }
     }
 
+@app.get("/load-model")
+async def load_model():
+    """Route pour charger le modèle manuellement."""
+    logger.info("Chargement manuel du modèle...")
+    try:
+        init_model()
+        return {"status": "ok", "message": "Modèle chargé avec succès"}
+    except Exception as e:
+        logger.error(f"Erreur lors du chargement du modèle: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
 @app.get("/webhook")
 async def verify_webhook(request: Request):
     """Vérifie le webhook pour WhatsApp."""
@@ -244,18 +257,21 @@ async def verify_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/webhook")
-async def receive_message(request: Request):
-    """Reçoit et traite les messages WhatsApp."""
+async def webhook_handler(request: Request):
+    """Gère les webhooks entrants de WhatsApp."""
     try:
-        data = await request.json()
-        logger.debug(f"Données reçues du webhook: {json.dumps(data, indent=2)}")
+        if model is None or tokenizer is None:
+            init_model()
+            
+        body = await request.json()
+        logger.info(f"Webhook reçu: {body}")
         
-        if "object" not in data:
+        if "object" not in body:
             logger.warning("Données reçues invalides - 'object' manquant")
             return {"status": "error", "message": "Invalid data format"}
         
-        if data["object"] == "whatsapp_business_account":
-            for entry in data["entry"]:
+        if body["object"] == "whatsapp_business_account":
+            for entry in body["entry"]:
                 for change in entry["changes"]:
                     if change["value"].get("messages"):
                         message_data = change["value"]["messages"][0]
