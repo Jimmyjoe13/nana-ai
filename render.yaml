@@ -3,7 +3,7 @@ services:
     name: nana-ai-assistant
     env: python
     region: frankfurt
-    buildCommand: chmod +x build.sh && ./build.sh
+    buildCommand: chmod +x ${PWD}/build.sh && ${PWD}/build.sh
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
     plan: standard
     envVars:
