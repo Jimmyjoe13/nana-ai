@@ -4,7 +4,7 @@ services:
     env: python
     region: frankfurt
     buildCommand: python build.py
-    startCommand: uvicorn app:app --host 0.0.0.0 --port 10000 --workers 1 --timeout-keep-alive 75
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 75
     plan: standard
     envVars:
       - key: PYTHON_VERSION
@@ -15,7 +15,7 @@ services:
         value: "true"
       - key: TRANSFORMERS_CACHE
         value: /opt/render/project/src/data/model
-    healthCheckPath: /webhook
+    healthCheckPath: /
     autoDeploy: true
     disk:
       name: nana-storage

@@ -10,20 +10,17 @@ from pydantic import BaseModel
 from heyoo import WhatsApp
 from transformers import BlenderbotTokenizer, BlenderbotForConditionalGeneration
 
-# Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+# Configuration du logger
+logger = logging.getLogger("app")
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
+
+app = FastAPI(title="NANA AI - Assistant WhatsApp")
 
 # Chargement des variables d'environnement
 load_dotenv()
-
-app = FastAPI(title="NANA AI - Assistant WhatsApp")
 
 # Vérification des variables d'environnement requises
 required_env_vars = ['WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'VERIFY_TOKEN']
@@ -198,7 +195,28 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 @app.get("/")
 async def root():
     """Route racine pour vérifier que l'application fonctionne."""
+    logger.info("Route racine appelée")
     return {"status": "ok", "message": "NANA AI is running!"}
+
+@app.get("/ping")
+async def ping():
+    """Route de test simple."""
+    logger.info("Route ping appelée")
+    return {"ping": "pong"}
+
+@app.get("/test")
+async def test():
+    """Route de test avec plus d'informations."""
+    logger.info("Route test appelée")
+    return {
+        "status": "ok",
+        "time": datetime.now().isoformat(),
+        "env_vars": {
+            "PORT": os.getenv("PORT"),
+            "PYTHON_VERSION": os.getenv("PYTHON_VERSION"),
+            "VERIFY_TOKEN": "***" if os.getenv("VERIFY_TOKEN") else None
+        }
+    }
 
 @app.get("/webhook")
 async def verify_webhook(request: Request):
