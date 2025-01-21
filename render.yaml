@@ -4,13 +4,13 @@ services:
     env: python
     region: frankfurt
     buildCommand: python build.py
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 75
+    startCommand: uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 75 --reload-exclude '*' --no-access-log
     plan: standard
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.12
       - key: PORT
-        value: 10000
+        value: 8000
       - key: PYTHONUNBUFFERED
         value: "true"
       - key: TRANSFORMERS_CACHE

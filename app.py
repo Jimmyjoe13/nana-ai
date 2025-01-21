@@ -186,13 +186,38 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
 @app.on_event("startup")
 async def startup_event():
     """Événement de démarrage de l'application."""
-    logger.info("Démarrage de l'application...")
+    logger.info("🚀 Démarrage de l'application...")
     try:
+        # Vérification des variables d'environnement requises
+        required_vars = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "VERIFY_TOKEN"]
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if missing_vars:
+            raise ValueError(f"Variables d'environnement manquantes : {', '.join(missing_vars)}")
+        
+        # Initialisation de WhatsApp
         init_whatsapp()
-        logger.info("Application démarrée avec succès")
+        
+        # Préchargement du modèle en arrière-plan
+        logger.info("🤖 Préchargement du modèle en arrière-plan...")
+        init_model()
+        
+        logger.info("✅ Application démarrée avec succès")
     except Exception as e:
-        logger.error(f"Erreur lors du démarrage: {str(e)}")
+        logger.error(f"❌ Erreur lors du démarrage: {str(e)}")
         raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Événement d'arrêt de l'application."""
+    logger.info("🛑 Arrêt gracieux de l'application...")
+    try:
+        # Nettoyage des ressources si nécessaire
+        global model, tokenizer
+        model = None
+        tokenizer = None
+        logger.info("✅ Arrêt réussi")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de l'arrêt: {str(e)}")
 
 @app.get("/")
 async def root():
