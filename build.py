@@ -1,7 +1,6 @@
 import os
 import subprocess
 import sys
-from transformers import BlenderbotTokenizer, BlenderbotForConditionalGeneration, GenerationConfig
 
 def run_command(command):
     print(f"Running: {command}")
@@ -17,6 +16,9 @@ def main():
     print("📦 Installing dependencies...")
     run_command("python -m pip install --upgrade pip")
     run_command("pip install -r requirements.txt")
+
+    # Import transformers after installation
+    from transformers import BlenderbotTokenizer, BlenderbotForConditionalGeneration, GenerationConfig
 
     # Create cache directory
     print("📁 Creating cache directory...")
