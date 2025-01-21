@@ -165,27 +165,35 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
             logger.info("Modèle non chargé, chargement...")
             init_model()
             logger.info("Modèle chargé avec succès")
+        
+        logger.info(f"État du modèle - Device: {model.device}, Training: {model.training}")
 
         # Encoder l'entrée
         logger.info("Tokenization de l'entrée...")
         inputs = tokenizer(user_input, return_tensors="pt", truncation=True, max_length=128)
+        logger.info(f"Tokens d'entrée: {inputs['input_ids'].tolist()}")
         inputs = inputs.to(model.device)
         logger.info("Tokenization terminée")
 
         # Générer la réponse
         logger.info("Génération de la réponse...")
-        with torch.no_grad():
-            outputs = model.generate(
-                inputs["input_ids"],
-                max_length=128,
-                min_length=10,
-                num_beams=4,
-                do_sample=False,
-                early_stopping=True
-            )
-        logger.info("Génération terminée")
+        try:
+            with torch.no_grad():
+                outputs = model.generate(
+                    inputs["input_ids"],
+                    max_length=128,
+                    min_length=10,
+                    num_beams=4,
+                    do_sample=False,
+                    early_stopping=True
+                )
+                logger.info(f"Tokens générés: {outputs.tolist()}")
+        except Exception as gen_error:
+            logger.error(f"Erreur pendant la génération: {str(gen_error)}", exc_info=True)
+            raise
 
         # Décoder la réponse
+        logger.info("Décodage de la réponse...")
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         logger.info(f"Réponse décodée: {response}")
 

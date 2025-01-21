@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import torch
 
 def run_command(command):
     print(f"Running: {command}")
@@ -34,6 +35,21 @@ def main():
     
     print(f"Loading model: {model_name}")
     model = BlenderbotForConditionalGeneration.from_pretrained(model_name)
+    
+    # Test du modèle
+    print("Testing model...")
+    test_input = "Hello"
+    inputs = tokenizer(test_input, return_tensors="pt", truncation=True)
+    with torch.no_grad():
+        outputs = model.generate(
+            inputs["input_ids"],
+            max_length=128,
+            min_length=10,
+            num_beams=4,
+            early_stopping=True
+        )
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    print(f"Test response: {response}")
     
     # Nettoyer la configuration du modèle
     print("Cleaning model config...")
