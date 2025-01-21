@@ -94,10 +94,17 @@ def init_model():
             tokenizer = BlenderbotTokenizer.from_pretrained(cache_dir)
             
             logger.info("Chargement du modèle...")
-            model = BlenderbotForConditionalGeneration.from_pretrained(
-                cache_dir,
-                generation_config=None  # Utiliser la configuration par défaut
-            )
+            model = BlenderbotForConditionalGeneration.from_pretrained(cache_dir)
+            
+            # Configuration des tokens spéciaux
+            if not hasattr(model.config, "decoder_start_token_id"):
+                model.config.decoder_start_token_id = tokenizer.bos_token_id
+            if not hasattr(model.config, "bos_token_id"):
+                model.config.bos_token_id = tokenizer.bos_token_id
+            if not hasattr(model.config, "eos_token_id"):
+                model.config.eos_token_id = tokenizer.eos_token_id
+            if not hasattr(model.config, "pad_token_id"):
+                model.config.pad_token_id = tokenizer.pad_token_id
             
             device = "cuda" if torch.cuda.is_available() else "cpu"
             model = model.to(device)

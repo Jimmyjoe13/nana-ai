@@ -48,6 +48,13 @@ def main():
     if hasattr(model.config, "no_repeat_ngram_size"):
         delattr(model.config, "no_repeat_ngram_size")
     
+    # Configuration des tokens spéciaux
+    print("Setting up special tokens...")
+    model.config.decoder_start_token_id = tokenizer.bos_token_id
+    model.config.bos_token_id = tokenizer.bos_token_id
+    model.config.eos_token_id = tokenizer.eos_token_id
+    model.config.pad_token_id = tokenizer.pad_token_id
+    
     # Create a clean generation config
     print("Creating generation config...")
     generation_config = GenerationConfig(
@@ -56,7 +63,11 @@ def main():
         num_beams=4,
         early_stopping=True,
         no_repeat_ngram_size=3,
-        do_sample=False
+        do_sample=False,
+        decoder_start_token_id=tokenizer.bos_token_id,
+        bos_token_id=tokenizer.bos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id
     )
     
     print("Saving model with clean config...")
