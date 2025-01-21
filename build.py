@@ -35,7 +35,21 @@ def main():
     print(f"Loading model: {model_name}")
     model = BlenderbotForConditionalGeneration.from_pretrained(model_name)
     
+    # Nettoyer la configuration du modèle
+    print("Cleaning model config...")
+    if hasattr(model.config, "max_length"):
+        delattr(model.config, "max_length")
+    if hasattr(model.config, "min_length"):
+        delattr(model.config, "min_length")
+    if hasattr(model.config, "num_beams"):
+        delattr(model.config, "num_beams")
+    if hasattr(model.config, "length_penalty"):
+        delattr(model.config, "length_penalty")
+    if hasattr(model.config, "no_repeat_ngram_size"):
+        delattr(model.config, "no_repeat_ngram_size")
+    
     # Create a clean generation config
+    print("Creating generation config...")
     generation_config = GenerationConfig(
         max_length=128,
         min_length=10,
