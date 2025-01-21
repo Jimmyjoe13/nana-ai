@@ -1,16 +1,16 @@
 services:
   - type: web
-    name: nana-ai-assistant
+    name: nana-ai
     env: python
     region: frankfurt
     buildCommand: python build.py
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
+    startCommand: uvicorn app:app --host 0.0.0.0 --port 10000 --workers 1 --timeout-keep-alive 75
     plan: standard
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.12
       - key: PORT
-        value: 8000
+        value: 10000
       - key: PYTHONUNBUFFERED
         value: "true"
       - key: TRANSFORMERS_CACHE

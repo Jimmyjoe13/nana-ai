@@ -195,6 +195,11 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
+@app.get("/")
+async def root():
+    """Route racine pour vérifier que l'application fonctionne."""
+    return {"status": "ok", "message": "NANA AI is running!"}
+
 @app.get("/webhook")
 async def verify_webhook(request: Request):
     """Vérifie le webhook pour WhatsApp."""
@@ -203,19 +208,21 @@ async def verify_webhook(request: Request):
         token = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge", "")
 
+        logger.info(f"Webhook verification - Mode: {mode}, Token: {token}, Challenge: {challenge}")
+
         if mode and token:
             if mode == "subscribe" and token == os.getenv("VERIFY_TOKEN"):
-                logger.info("Webhook vérifié avec succès")
-                return challenge
+                logger.info("Webhook verified successfully")
+                return int(challenge) if challenge.isdigit() else challenge
             else:
-                logger.error("Échec de la vérification du webhook")
-                raise HTTPException(status_code=403, detail="Vérification du webhook échouée")
+                logger.error(f"Webhook verification failed - Invalid mode or token")
+                raise HTTPException(status_code=403, detail="Webhook verification failed")
         else:
-            logger.error("Paramètres manquants dans la requête webhook")
-            raise HTTPException(status_code=400, detail="Paramètres manquants")
+            logger.error("Missing parameters in webhook request")
+            raise HTTPException(status_code=400, detail="Missing parameters")
             
     except Exception as e:
-        logger.error(f"Erreur lors de la vérification du webhook: {str(e)}")
+        logger.error(f"Error during webhook verification: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/webhook")
