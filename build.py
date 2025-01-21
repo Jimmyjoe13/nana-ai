@@ -1,7 +1,6 @@
 import os
 import subprocess
 import sys
-import torch
 
 def run_command(command):
     print(f"Running: {command}")
@@ -18,8 +17,10 @@ def main():
     run_command("python -m pip install --upgrade pip")
     run_command("pip install -r requirements.txt")
 
-    # Import transformers after installation
+    # Import all required modules after installation
+    print("📦 Importing required modules...")
     from transformers import BlenderbotTokenizer, BlenderbotForConditionalGeneration, GenerationConfig
+    import torch
 
     # Create cache directory
     print("📁 Creating cache directory...")
