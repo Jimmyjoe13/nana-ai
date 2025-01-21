@@ -94,7 +94,10 @@ def init_model():
             tokenizer = BlenderbotTokenizer.from_pretrained(cache_dir)
             
             logger.info("Chargement du modèle...")
-            model = BlenderbotForConditionalGeneration.from_pretrained(cache_dir)
+            model = BlenderbotForConditionalGeneration.from_pretrained(
+                cache_dir,
+                generation_config=None  # Utiliser la configuration par défaut
+            )
             
             device = "cuda" if torch.cuda.is_available() else "cpu"
             model = model.to(device)
@@ -146,22 +149,10 @@ class ConversationMemory:
 conversation_memory = ConversationMemory()
 
 async def generate_response_with_model(user_input: str, sender_id: str) -> str:
-    """Génère une réponse en utilisant le modèle Blenderbot avec gestion de la mémoire."""
+    """Génère une réponse en utilisant le modèle Blenderbot."""
     try:
         logger.info(f"Génération de réponse pour '{user_input}' de {sender_id}")
         
-        # Récupération de l'historique de conversation
-        conversation_history = conversation_memory.get_conversation_history(sender_id)
-        logger.info(f"Historique de conversation récupéré: {len(conversation_history)} messages")
-        
-        # Construction du contexte
-        if ENABLE_MEMORY and conversation_history:
-            input_text = " ".join(conversation_history[-MAX_MEMORY_MESSAGES:] + [user_input])
-            logger.info(f"Utilisation du contexte: {input_text}")
-        else:
-            input_text = user_input
-            logger.info("Pas de contexte utilisé")
-
         # Vérification du modèle
         if model is None:
             logger.info("Modèle non chargé, chargement...")
@@ -170,7 +161,7 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
 
         # Encoder l'entrée
         logger.info("Tokenization de l'entrée...")
-        inputs = tokenizer(input_text, return_tensors="pt", truncation=True, max_length=MAX_LENGTH)
+        inputs = tokenizer(user_input, return_tensors="pt", truncation=True, max_length=128)
         inputs = inputs.to(model.device)
         logger.info("Tokenization terminée")
 
@@ -179,11 +170,10 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
         with torch.no_grad():
             outputs = model.generate(
                 inputs["input_ids"],
-                max_length=MAX_LENGTH,
-                min_length=MIN_LENGTH,
-                num_beams=NUM_BEAMS,
-                length_penalty=LENGTH_PENALTY,
-                no_repeat_ngram_size=NO_REPEAT_NGRAM_SIZE,
+                max_length=128,
+                min_length=10,
+                num_beams=4,
+                do_sample=False,
                 early_stopping=True
             )
         logger.info("Génération terminée")
@@ -191,11 +181,6 @@ async def generate_response_with_model(user_input: str, sender_id: str) -> str:
         # Décoder la réponse
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         logger.info(f"Réponse décodée: {response}")
-
-        # Mise à jour de la mémoire de conversation
-        if ENABLE_MEMORY:
-            conversation_memory.add_to_conversation(sender_id, user_input, response)
-            logger.info("Mémoire de conversation mise à jour")
 
         return response
 
