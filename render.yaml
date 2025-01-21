@@ -4,13 +4,11 @@ services:
     env: python
     region: frankfurt
     buildCommand: python build.py
-    startCommand: uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 75 --no-access-log --no-server-header
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 75 --no-access-log --no-server-header
     plan: standard
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.12
-      - key: PORT
-        value: 8000
       - key: PYTHONUNBUFFERED
         value: "true"
       - key: TRANSFORMERS_CACHE
@@ -18,7 +16,7 @@ services:
       - key: TOKENIZERS_PARALLELISM
         value: "false"
     healthCheckPath: /ping
-    autoDeploy: true
+    autoDeploy: false
     disk:
       name: nana-storage
       mountPath: /opt/render/project/src/data
